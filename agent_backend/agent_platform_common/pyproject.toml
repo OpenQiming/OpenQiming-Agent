@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "agent-platform-common"
+version = "0.1.0"
+description = "agent_platform_common is a platform common extending library built to power building LLM application."
+authors = [""]
+license = "Apache License 2.0"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "~3.12.7"
+
+pydantic = "~2.9.2"
+pydantic-settings = "~2.6.0"
+pydantic_extra_types = "~2.9.0"
+pycryptodome = "3.19.1"
+gmpy2 = "~2.2.1"
+
+agent-platform-basic = { path = "../agent_platform_basic", develop = true }
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

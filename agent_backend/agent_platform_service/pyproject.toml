@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "agent-platform-service"
+version = "0.1.0"
+description = "agent_platform_extensions is a platform extensions extending library built to power building LLM application."
+authors = [""]
+license = "Apache License 2.0"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "~3.12.7"
+
+celery = "~5.4.0"
+pandas = { version = "~2.2.2", extras = ["performance", "excel"] }
+scikit-learn = "1.5.1"
+gevent = "~24.11.1"
+flask-cors = "~4.0.0"
+agent-platform-core = { path = "../agent_platform_core", extras = ["tool"] , develop = true }
+agent-platform-metabolic = {path = "../agent_platform_metabolic",  develop = true }
+agent-platform-common = { path = "../agent_platform_common", develop = true }
+agent-platform-basic = { path = "../agent_platform_basic", develop = true }
+python-multipart = "^0.0.9"
+uvloop = { version = "^0.21.0", markers = "sys_platform != 'win32'" }
+aiokafka = "0.12.0"
+elasticsearch = "8.8.2"
+pymilvus = "2.4.15"
+msal-extensions = "1.3.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

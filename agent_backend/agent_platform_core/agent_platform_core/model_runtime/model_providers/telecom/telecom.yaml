@@ -1,0 +1,170 @@
+provider: telecom
+label:
+  en_US: CHINA TELECOM
+description:
+  en_US: Model providers compatible with CHINA_TELECOM's API standard.
+  zh_Hans: 作为可接入启明大模型相关 API 的模型供应商 。
+icon_small:
+  en_US: icon_s_en.svg
+icon_large:
+  en_US: icon_l_en.svg
+supported_model_types:
+  - llm
+configurate_methods:
+  - predefined-model
+  - customizable-model
+model_credential_schema:
+  model:
+    label:
+      en_US: Model Name
+      zh_Hans: 模型名称
+    placeholder:
+      en_US: Enter full model name
+      zh_Hans: 输入模型全称
+  credential_form_schemas:
+    - variable: api_key
+      label:
+        en_US: API Key
+      type: secret-input
+      required: false
+      placeholder:
+        zh_Hans: 在此输入您的 API Key
+        en_US: Enter your API Key
+    - variable: endpoint_url
+      label:
+        zh_Hans: API endpoint URL
+        en_US: API endpoint URL
+      type: text-input
+      required: true
+      placeholder:
+        zh_Hans: Base URL, e.g. https://api.openai.com/v1
+        en_US: Base URL, e.g. https://api.openai.com/v1
+    - variable: mode
+      show_on:
+        - variable: __model_type
+          value: llm
+      label:
+        en_US: Completion mode
+      type: select
+      required: false
+      default: chat
+      placeholder:
+        zh_Hans: 选择类型
+        en_US: Select completion mode
+      options:
+        - value: completion
+          label:
+            en_US: Completion
+            zh_Hans: 补全
+        - value: chat
+          label:
+            en_US: Chat
+            zh_Hans: 对话
+    - variable: context_size
+      label:
+        zh_Hans: 模型上下文长度
+        en_US: Model context size
+      required: true
+      type: text-input
+      default: '4096'
+      placeholder:
+        zh_Hans: 在此输入您的模型上下文长度
+        en_US: Enter your Model context size
+    - variable: max_tokens_to_sample
+      label:
+        zh_Hans: 最大 token 上限
+        en_US: Upper bound for max tokens
+      show_on:
+        - variable: __model_type
+          value: llm
+      default: '4096'
+      type: text-input
+    - variable: function_calling_type
+      show_on:
+        - variable: __model_type
+          value: llm
+      label:
+        en_US: Function calling
+        zh_Hans: 是否支持方法/工具调用
+      type: select
+      required: false
+      default: no_call
+      options:
+        - value: function_call
+          label:
+            en_US: Function Call
+            zh_Hans: 方法调用
+        - value: tool_call
+          label:
+            en_US: Tool Call
+            zh_Hans: 工具调用
+        - value: no_call
+          label:
+            en_US: Not Support
+            zh_Hans: 不支持
+    - variable: stream_function_calling
+      show_on:
+        - variable: __model_type
+          value: llm
+      label:
+        en_US: Stream function calling
+        zh_Hans: 流模式下是否支持方法/工具调用
+      type: select
+      required: false
+      default: not_supported
+      options:
+        - value: supported
+          label:
+            en_US: Support
+            zh_Hans: 支持
+        - value: not_supported
+          label:
+            en_US: Not Support
+            zh_Hans: 不支持
+    - variable: stream_mode_delimiter
+      label:
+        zh_Hans: 流模式返回结果的分隔符
+        en_US: Delimiter for streaming results
+      show_on:
+        - variable: __model_type
+          value: llm
+      default: '\n\n'
+      type: text-input
+provider_credential_schema:
+  credential_form_schemas:
+    - variable: api_key
+      label:
+        en_US: API Key
+      type: secret-input
+      required: false
+      placeholder:
+        zh_Hans: 在此输入您的 API Key
+        en_US: Enter your API Key
+    - variable: endpoint_url
+      label:
+        zh_Hans: API endpoint URL
+        en_US: API endpoint URL
+      type: text-input
+      required: true
+      placeholder:
+        zh_Hans: Base URL, e.g. https://api.openai.com/v1
+        en_US: Base URL, e.g. https://api.openai.com/v1
+    - variable: mode
+      label:
+        zh_Hans: 补全类型
+        en_US: Completion mode
+      type: select
+      required: true
+      default: chat
+      placeholder:
+        zh_Hans: 选择类型
+        en_US: Select completion mode
+      options:
+        - value: completion
+          label:
+            en_US: Completion
+            zh_Hans: 补全
+        - value: chat
+          label:
+            en_US: Chat
+            zh_Hans: 对话

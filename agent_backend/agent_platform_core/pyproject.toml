@@ -1,0 +1,65 @@
+[tool.poetry]
+name = "agent-platform-core"
+version = "0.1.0"
+description = "agent_platform_core is a runtime engine extending library built to power building LLM application."
+authors = [""]
+license = "Apache License 2.0"
+readme = "README.md"
+
+
+#[tool.poetry.group.tool.dependencies]
+#numexpr = "~2.9.0"
+#matplotlib = "~3.8.2"
+#jsonpath-ng = "1.6.1"
+
+[tool.poetry.extras]
+tool = [
+    "numexpr",
+    "matplotlib",
+    "jsonpath-ng"
+]
+
+[tool.poetry.dependencies]
+python = "~3.12.7"
+agent-platform-metabolic = {path = "../agent_platform_metabolic",  develop = true }
+agent-platform-common = { path = "../agent_platform_common", develop = true }
+agent-platform-basic = { path = "../agent_platform_basic", develop = true }
+numpy = "~1.26.4"
+yarl = "~1.9.4"
+pydub = "~0.25.1"
+tiktoken = "~0.8.0"
+psycopg2-binary = "~2.9.6"
+httpx = { version = "~0.27.0", extras = ["socks"] }
+transformers = "~4.35.0"
+pypdfium2 = "~4.17.0"
+cloudscraper = "1.2.71"
+
+openai = "~1.52.0"
+#xinference-client = "0.15.2"
+dashscope = { version = "~1.17.0", extras = ["tokenizer"] }
+
+langfuse = "~2.51.3"
+
+unstructured = { version = "~0.16.1", extras = ["docx", "epub", "md", "msg", "ppt", "pptx"] }
+jieba = "0.42.1"
+lxml-html-clean = "^0.1.1"
+asyncpg = "^0.29.0"
+webvtt-py = "~0.5.1"
+tabulate = "0.9.0"
+
+# extra dependencies version
+numexpr = "~2.9.0"
+matplotlib = "~3.8.2"
+jsonpath-ng = "1.6.1"
+
+[tool.poetry.group.vdb.dependencies]
+pgvecto-rs = "0.1.4"
+pgvector = "0.2.5"
+pymilvus = "~2.4.4"
+pymysql = "1.1.1"
+tidb-vector = "0.0.9"
+weaviate-client = "~3.21.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

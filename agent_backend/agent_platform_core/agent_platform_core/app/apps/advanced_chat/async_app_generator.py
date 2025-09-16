@@ -1,0 +1,418 @@
+import asyncio
+import contextvars
+import logging
+import threading
+import uuid
+from collections.abc import Generator, Mapping
+from typing import Any, Optional, Union, AsyncGenerator
+from sqlalchemy import select
+from agent_platform_basic.exceptions.services.message import MessageNotExistsError
+from agent_platform_core import contexts
+from agent_platform_core.app.apps.advanced_chat.async_app_runner import AdvancedChatAppRunner
+from agent_platform_core.app.apps.async_base_app_queue_manager import AsyncAppQueueManager
+from agent_platform_core.app.apps.async_message_based_app_generator import AsyncMessageBasedAppGenerator
+from agent_platform_core.app.apps.async_message_based_app_queue_manager import AsyncMessageBasedAppQueueManager
+from agent_platform_core.prompt.utils.async_get_thread_messages_length import get_thread_messages_length
+from agent_platform_service.services.conversation_service import ConversationService
+from pydantic import ValidationError
+
+from agent_platform_common.constants import UUID_NIL
+
+from agent_platform_basic.models.db_model import Account
+from agent_platform_common.configs import agent_platform_config
+from agent_platform_core.app.app_config.features.file_upload.manager import FileUploadConfigManager
+from agent_platform_core.app.apps.advanced_chat.app_config_manager import AdvancedChatAppConfigManager
+from agent_platform_core.app.apps.advanced_chat.generate_response_converter import AdvancedChatAppGenerateResponseConverter
+from agent_platform_core.app.apps.advanced_chat.async_generate_task_pipeline import AdvancedChatAppGenerateTaskPipeline
+from agent_platform_core.app.apps.base_app_queue_manager import GenerateTaskStoppedError, PublishFrom
+from agent_platform_core.app.entities.app_invoke_entities import AdvancedChatAppGenerateEntity, InvokeFrom
+from agent_platform_core.app.entities.task_entities import ChatbotAppBlockingResponse, ChatbotAppStreamResponse
+from agent_platform_core.factories import file_factory
+from agent_platform_core.model_runtime.errors.invoke import InvokeAuthorizationError
+from agent_platform_core.models.db_model.model import App, EndUser, Conversation, Message
+from agent_platform_core.models.db_model.workflow import Workflow
+from agent_platform_basic.extensions.ext_database import async_db
+
+logger = logging.getLogger(__name__)
+
+
+class AdvancedChatAppGenerator(AsyncMessageBasedAppGenerator):
+    _dialogue_count: int
+
+    async def generate(
+        self,
+        app_model: App,
+        workflow: Workflow,
+        user: Union[Account, EndUser],
+        args: Mapping,
+        invoke_from: InvokeFrom,
+        streaming: bool = True,
+    ) -> Mapping[str, Any] | AsyncGenerator[str | Mapping, None]:
+        """
+        Generate App response.
+
+        :param app_model: App
+        :param workflow: Workflow
+        :param user: account or end user
+        :param args: request args
+        :param invoke_from: invoke from source
+        :param streaming: is stream
+        """
+        if not args.get("query"):
+            raise ValueError("query is required")
+
+        query = args["query"]
+        if not isinstance(query, str):
+            raise ValueError("query must be a string")
+
+        query = query.replace("\x00", "")
+        inputs = args["inputs"]
+
+        extras = {"auto_generate_conversation_name": args.get("auto_generate_name", False)}
+
+        # get conversation
+        conversation = None
+        conversation_id = args.get("conversation_id")
+        if conversation_id:
+            async with async_db.AsyncSessionLocal() as session:
+                conversation = await session.execute(
+                    select(Conversation).filter(Conversation.id == conversation_id,
+                                                Conversation.app_id == app_model.id))
+
+                conversation = conversation.scalar_one_or_none()
+
+
+        # parse files
+        files = args["files"] if args.get("files") else []
+        file_extra_config = FileUploadConfigManager.convert(workflow.features_dict, is_vision=False)
+        if file_extra_config:
+            file_objs = file_factory.build_from_mappings(
+                mappings=files,
+                tenant_id=app_model.tenant_id,
+                config=file_extra_config,
+            )
+        else:
+            file_objs = []
+
+        # convert to app config
+        app_config = AdvancedChatAppConfigManager.get_app_config(app_model=app_model, workflow=workflow)
+
+        # get tracing instance
+        # trace_manager = TraceQueueManager(
+        #     app_id=app_model.id, user_id=user.id if isinstance(user, Account) else user.session_id
+        # )
+
+        if invoke_from == InvokeFrom.DEBUGGER:
+            # always enable retriever resource in debugger mode
+            app_config.additional_features.show_retrieve_source = True
+
+        inputs = await self._prepare_user_inputs(
+            user_inputs=inputs, variables=app_config.variables, tenant_id=app_model.tenant_id
+        )
+
+        workflow_run_id = str(uuid.uuid4())
+        # init application generate entity
+        application_generate_entity = AdvancedChatAppGenerateEntity(
+            task_id=str(uuid.uuid4()),
+            app_config=app_config,
+            file_upload_config=file_extra_config,
+            conversation_id=conversation.id if conversation else None,
+            inputs=inputs,
+            query=query,
+            files=list(file_objs),
+            parent_message_id=args.get("parent_message_id") if invoke_from != InvokeFrom.SERVICE_API else UUID_NIL,
+            user_id=user.id,
+            stream=streaming,
+            invoke_from=invoke_from,
+            extras=extras,
+            # trace_manager=trace_manager,
+            workflow_run_id=workflow_run_id,
+        )
+        contexts.plugin_tool_providers.set({})
+        contexts.plugin_tool_providers_lock.set(threading.Lock())
+
+        return await self._generate(
+            app_model=app_model,
+            workflow=workflow,
+            user=user,
+            invoke_from=invoke_from,
+            application_generate_entity=application_generate_entity,
+            conversation=conversation,
+            stream=streaming,
+        )
+
+    async def single_iteration_generate(
+        self,
+        app_model: App,
+        workflow: Workflow,
+        node_id: str,
+        user: Account | EndUser,
+        args: Mapping,
+        streaming: bool = True,
+    ) -> Mapping[str, Any] | Generator[str | Mapping[str, Any], Any, None]:
+        """
+        Generate App response.
+
+        :param app_model: App
+        :param workflow: Workflow
+        :param node_id: the node id
+        :param user: account or end user
+        :param args: request args
+        :param streaming: is streamed
+        """
+        if not node_id:
+            raise ValueError("node_id is required")
+
+        if args.get("inputs") is None:
+            raise ValueError("inputs is required")
+
+        # convert to app config
+        app_config = AdvancedChatAppConfigManager.get_app_config(app_model=app_model, workflow=workflow)
+
+        # init application generate entity
+        application_generate_entity = AdvancedChatAppGenerateEntity(
+            task_id=str(uuid.uuid4()),
+            app_config=app_config,
+            conversation_id=None,
+            inputs={},
+            query="",
+            files=[],
+            user_id=user.id,
+            stream=streaming,
+            invoke_from=InvokeFrom.DEBUGGER,
+            extras={"auto_generate_conversation_name": False},
+            single_iteration_run=AdvancedChatAppGenerateEntity.SingleIterationRunEntity(
+                node_id=node_id, inputs=args["inputs"]
+            ),
+        )
+        contexts.plugin_tool_providers.set({})
+        contexts.plugin_tool_providers_lock.set(threading.Lock())
+
+        return await self._generate(
+            app_model=app_model,
+            workflow=workflow,
+            user=user,
+            invoke_from=InvokeFrom.DEBUGGER,
+            application_generate_entity=application_generate_entity,
+            conversation=None,
+            stream=streaming,
+        )
+
+    async def single_loop_generate(
+        self,
+        app_model: App,
+        workflow: Workflow,
+        node_id: str,
+        user: Account | EndUser,
+        args: Mapping,
+        streaming: bool = True,
+    ) -> Mapping[str, Any] | Generator[str | Mapping[str, Any], Any, None]:
+        """
+        Generate App response.
+
+        :param app_model: App
+        :param workflow: Workflow
+        :param node_id: the node id
+        :param user: account or end user
+        :param args: request args
+        :param streaming: is stream
+        """
+        if not node_id:
+            raise ValueError("node_id is required")
+
+        if args.get("inputs") is None:
+            raise ValueError("inputs is required")
+
+        # convert to app config
+        app_config = AdvancedChatAppConfigManager.get_app_config(app_model=app_model, workflow=workflow)
+
+        # init application generate entity
+        application_generate_entity = AdvancedChatAppGenerateEntity(
+            task_id=str(uuid.uuid4()),
+            app_config=app_config,
+            conversation_id=None,
+            inputs={},
+            query="",
+            files=[],
+            user_id=user.id,
+            stream=streaming,
+            invoke_from=InvokeFrom.DEBUGGER,
+            extras={"auto_generate_conversation_name": False},
+            single_loop_run=AdvancedChatAppGenerateEntity.SingleLoopRunEntity(node_id=node_id, inputs=args["inputs"]),
+        )
+        contexts.plugin_tool_providers.set({})
+        contexts.plugin_tool_providers_lock.set(threading.Lock())
+
+        return await self._generate(
+            app_model=app_model,
+            workflow=workflow,
+            user=user,
+            invoke_from=InvokeFrom.DEBUGGER,
+            application_generate_entity=application_generate_entity,
+            conversation=None,
+            stream=streaming,
+        )
+
+    async def _generate(
+        self,
+        *,
+        app_model: App,
+        workflow: Workflow,
+        user: Union[Account, EndUser],
+        invoke_from: InvokeFrom,
+        application_generate_entity: AdvancedChatAppGenerateEntity,
+        conversation: Optional[Conversation] = None,
+        stream: bool = True,
+    ) -> Mapping[str, Any] | AsyncGenerator[str | Mapping[str, Any], Any]:
+        """
+        Generate App response.
+
+        :param workflow: Workflow
+        :param user: account or end user
+        :param invoke_from: invoke from source
+        :param application_generate_entity: application generate entity
+        :param workflow_node_execution_repository: repository for workflow node execution
+        :param conversation: conversation
+        :param stream: is stream
+        """
+        is_first_conversation = False
+        if not conversation:
+            is_first_conversation = True
+
+        # init generate records
+        (conversation, message) = await self._init_generate_records(application_generate_entity, conversation)
+
+        if is_first_conversation:
+            # update conversation features
+            async with async_db.AsyncSessionLocal() as session:
+                conversation = await session.get(Conversation, conversation.id)
+                conversation.override_model_configs = workflow.features
+                await session.commit()
+                await session.refresh(conversation)
+
+        # # get conversation dialogue count
+        self._dialogue_count = await get_thread_messages_length(conversation.id)
+
+        # init queue manager
+        queue_manager = AsyncMessageBasedAppQueueManager(
+            task_id=application_generate_entity.task_id,
+            user_id=application_generate_entity.user_id,
+            invoke_from=application_generate_entity.invoke_from,
+            conversation_id=conversation.id,
+            app_mode=conversation.mode,
+            message_id=message.id,
+        )
+        # new thread with request context and contextvars
+        context = contextvars.copy_context()
+        producer = asyncio.create_task(self._generate_worker(application_generate_entity, queue_manager, conversation.id, message.id, context))
+
+        # return response or stream generator
+        response = await self._handle_advanced_chat_response(
+            application_generate_entity=application_generate_entity,
+            workflow=workflow,
+            queue_manager=queue_manager,
+            conversation=conversation,
+            message=message,
+            user=user,
+            stream=stream,
+        )
+
+        return await AdvancedChatAppGenerateResponseConverter.convert(response=response, invoke_from=invoke_from)
+
+    async def _generate_worker(
+        self,
+        application_generate_entity: AdvancedChatAppGenerateEntity,
+        queue_manager: AsyncAppQueueManager,
+        conversation_id: str,
+        message_id: str,
+        context: contextvars.Context,
+    ) -> None:
+        """
+        Generate worker in a new thread.
+        :param flask_app: Flask app
+        :param application_generate_entity: application generate entity
+        :param queue_manager: queue manager
+        :param conversation_id: conversation ID
+        :param message_id: message ID
+        :return:
+        """
+        for var, val in context.items():
+            var.set(val)
+
+        try:
+            # get conversation and message
+            conversation = await self._get_conversation(conversation_id)
+            message = await self._get_message(message_id)
+            if message is None:
+                raise MessageNotExistsError("Message not exists")
+
+            # chatbot app
+            runner = AdvancedChatAppRunner(
+                application_generate_entity=application_generate_entity,
+                queue_manager=queue_manager,
+                conversation=conversation,
+                message=message,
+                dialogue_count=self._dialogue_count
+            )
+
+            await runner.run()
+        except GenerateTaskStoppedError:
+            pass
+        except InvokeAuthorizationError:
+            await queue_manager.publish_error(
+                InvokeAuthorizationError("Incorrect API key provided"), PublishFrom.APPLICATION_MANAGER
+            )
+        except ValidationError as e:
+            logger.exception("Validation Error when generating")
+            await queue_manager.publish_error(e, PublishFrom.APPLICATION_MANAGER)
+        except ValueError as e:
+            if agent_platform_config.DEBUG:
+                logger.exception("Error when generating")
+            await queue_manager.publish_error(e, PublishFrom.APPLICATION_MANAGER)
+        except Exception as e:
+            logger.exception("Unknown Error when generating")
+            await queue_manager.publish_error(e, PublishFrom.APPLICATION_MANAGER)
+
+    async def _handle_advanced_chat_response(
+        self,
+        *,
+        application_generate_entity: AdvancedChatAppGenerateEntity,
+        workflow: Workflow,
+        queue_manager: AsyncAppQueueManager,
+        conversation: Conversation,
+        message: Message,
+        user: Union[Account, EndUser],
+        stream: bool = False,
+    ) -> Union[ChatbotAppBlockingResponse, AsyncGenerator[ChatbotAppStreamResponse, None]]:
+        """
+        Handle response.
+        :param application_generate_entity: application generate entity
+        :param workflow: workflow
+        :param queue_manager: queue manager
+        :param conversation: conversation
+        :param message: message
+        :param user: account or end user
+        :param stream: is stream
+        :param workflow_node_execution_repository: optional repository for workflow node execution
+        :return:
+        """
+        # init generate task pipeline
+        generate_task_pipeline = AdvancedChatAppGenerateTaskPipeline(
+            application_generate_entity=application_generate_entity,
+            workflow=workflow,
+            queue_manager=queue_manager,
+            conversation=conversation,
+            message=message,
+            user=user,
+            dialogue_count=self._dialogue_count,
+            stream=stream,
+        )
+
+        try:
+            return await generate_task_pipeline.process()
+        except ValueError as e:
+            if len(e.args) > 0 and e.args[0] == "I/O operation on closed file.":  # ignore this error
+                raise GenerateTaskStoppedError()
+            else:
+                logger.exception(f"Failed to process generate task pipeline, conversation_id: {conversation.id}")
+                raise e

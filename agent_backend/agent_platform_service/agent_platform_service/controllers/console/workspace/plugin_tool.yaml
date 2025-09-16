@@ -1,0 +1,84 @@
+tools:
+  - name: simple_code
+    create_time: 2024-12-31
+    label: 代码执行
+
+  - name: eval_expression
+    create_time: 2024-12-31
+    label: 代码执行
+
+  - name: json_replace
+    create_time: 2024-12-31
+    label: 代码执行
+
+  - name: json_delete
+    create_time: 2024-12-31
+    label: 代码执行
+
+  - name: parse
+    create_time: 2024-12-31
+    label: 代码执行
+
+  - name: json_insert
+    create_time: 2024-12-31
+    label: 代码执行
+
+  - name: line_chart
+    create_time: 2024-12-31
+    label: 多模态
+
+  - name: bar_chart
+    create_time: 2024-12-31
+    label: 多模态
+
+  - name: pie_chart
+    create_time: 2024-12-31
+    label: 多模态
+
+  - name: weekday
+    create_time: 2024-12-31
+    label: 通用
+
+  - name: current_time
+    create_time: 2024-12-31
+    label: 通用
+
+  - name: sql_query
+    create_time: 2024-12-31
+    label: 通用
+
+  - name: mcp_sse_list_tools
+    create_time: 2024-12-31
+    label: 通用
+
+  - name: mcp_sse_call_tool
+    create_time: 2024-12-31
+    label: 通用
+
+  - name: sql_execute
+    create_time: 2024-12-31
+    label: 通用
+
+  - name: text2sql
+    create_time: 2024-12-31
+    label: 通用
+
+  - name: table_schema
+    create_time: 2024-12-31
+    label: 通用
+
+  - name: csv_query
+    create_time: 2024-12-31
+    label: 通用
+
+  - name: regex_extract
+    create_time: 2024-12-31
+    label: 通用
+
+  - name: mcp_list_tools
+    create_time: 2024-12-31
+    label: 通用
+
+  - name: mcp_call_tool
+    create_time: 2024-12-31
+    label: 通用

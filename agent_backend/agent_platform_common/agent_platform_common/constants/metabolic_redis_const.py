@@ -1,0 +1,14 @@
+MESSAGE_FROM_USER_PREFIX = "message_from_user_by_user_id_and_workflow_id"
+
+MESSAGE_FROM_WORKFLOW_PREFIX = "message_sent_from_workflow_by_user_id_and_workflow_id"
+
+MESSAGE_TO_WORKFLOW_PREFIX = "message_send_to_workflow_by_user_id_and_redis_label"
+
+MESSAGE_FROM_AGENT_PREFIX = "message_replied_from_agent_by_user_id_and_workflow_id"
+
+SHUTDOWN_ALL_AGENT_PREFIX = "shut_down_all_agent_by_user_id_and_workflow_id"
+
+ANSWER_NODE_OUTPUT_PREFIX = "answer_node_output_by_user_id_and_workflow_id"
+
+
+METABOLIC_MESSAGE_REDIS_TIMEOUT = 10
